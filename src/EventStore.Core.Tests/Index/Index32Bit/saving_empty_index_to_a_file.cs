@@ -14,7 +14,7 @@ namespace EventStore.Core.Tests.Index.Index32Bit
         private IndexMap _map;
         protected byte _ptableVersion = PTableVersions.Index32Bit;
 
-        [TestFixtureSetUp]
+        [OneTimeSetUp]
         public override void TestFixtureSetUp()
         {
             base.TestFixtureSetUp();
