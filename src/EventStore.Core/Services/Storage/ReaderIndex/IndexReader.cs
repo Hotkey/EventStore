@@ -6,7 +6,6 @@ using EventStore.Common.Utils;
 using EventStore.Common.Log;
 using EventStore.Core.Data;
 using EventStore.Core.Index;
-using EventStore.Core.Index.Hashes;
 using EventStore.Core.TransactionLog;
 using EventStore.Core.TransactionLog.LogRecords;
 
@@ -63,7 +62,6 @@ namespace EventStore.Core.Services.Storage.ReaderIndex
             _hashCollisionReadLimit = hashCollisionReadLimit;
         }
 
-
         IndexReadEventResult IIndexReader.ReadEvent(string streamId, int eventNumber)
         {
             Ensure.NotNullOrEmpty(streamId, "streamId");
@@ -82,6 +80,8 @@ namespace EventStore.Core.Services.Storage.ReaderIndex
             if (lastEventNumber == EventNumber.DeletedStream)
                 return new IndexReadEventResult(ReadEventResult.StreamDeleted, metadata, lastEventNumber, originalStreamExists);
             if (lastEventNumber == ExpectedVersion.NoStream || metadata.TruncateBefore == EventNumber.DeletedStream)
+                return new IndexReadEventResult(ReadEventResult.NoStream, metadata, lastEventNumber, originalStreamExists);
+            if (lastEventNumber == EventNumber.Invalid)
                 return new IndexReadEventResult(ReadEventResult.NoStream, metadata, lastEventNumber, originalStreamExists);
 
             if (eventNumber == -1)
@@ -166,6 +166,8 @@ namespace EventStore.Core.Services.Storage.ReaderIndex
                     return new IndexReadStreamResult(fromEventNumber, maxCount, ReadStreamResult.StreamDeleted, StreamMetadata.Empty, lastEventNumber);
                 if (lastEventNumber == ExpectedVersion.NoStream || metadata.TruncateBefore == EventNumber.DeletedStream)
                     return new IndexReadStreamResult(fromEventNumber, maxCount, ReadStreamResult.NoStream, metadata, lastEventNumber);
+                if (lastEventNumber == EventNumber.Invalid)
+                    return new IndexReadStreamResult(fromEventNumber, maxCount, ReadStreamResult.NoStream, metadata, lastEventNumber);
 
                 int startEventNumber = fromEventNumber;
                 int endEventNumber = (int)Math.Min(int.MaxValue, (long)fromEventNumber + maxCount - 1);
@@ -213,6 +215,8 @@ namespace EventStore.Core.Services.Storage.ReaderIndex
                 if (lastEventNumber == EventNumber.DeletedStream)
                     return new IndexReadStreamResult(fromEventNumber, maxCount, ReadStreamResult.StreamDeleted, StreamMetadata.Empty, lastEventNumber);
                 if (lastEventNumber == ExpectedVersion.NoStream || metadata.TruncateBefore == EventNumber.DeletedStream)
+                    return new IndexReadStreamResult(fromEventNumber, maxCount, ReadStreamResult.NoStream, metadata, lastEventNumber);
+                if (lastEventNumber == EventNumber.Invalid)
                     return new IndexReadStreamResult(fromEventNumber, maxCount, ReadStreamResult.NoStream, metadata, lastEventNumber);
 
                 int endEventNumber = fromEventNumber < 0 ? lastEventNumber : fromEventNumber;
@@ -395,17 +399,18 @@ namespace EventStore.Core.Services.Storage.ReaderIndex
                 return latestEntry.Version;
 
             int count = 0;
-            foreach (var indexEntry in _tableIndex.GetRange(streamId, 0, int.MaxValue, limit: _hashCollisionReadLimit))
+            foreach (var indexEntry in _tableIndex.GetRange(streamId, 0, int.MaxValue, limit: _hashCollisionReadLimit + 1))
             {
                 var r = ReadPrepareInternal(reader, indexEntry.Position);
                 if (r != null && r.EventStreamId == streamId)
                     return indexEntry.Version; // AT LAST!!!
+
                 count++;
                 Interlocked.Increment(ref _hashCollisions);
                 if(count > _hashCollisionReadLimit)
                 {
-                    Log.Error("A hash collision resulted in not finding the last event number for the stream {0}", streamId);
-                    return ExpectedVersion.NoStream;
+                    Log.Error("A hash collision resulted in not finding the last event number for the stream {0}.", streamId);
+                    return EventNumber.Invalid;
                 }
             }
             return ExpectedVersion.NoStream; // no such event stream
