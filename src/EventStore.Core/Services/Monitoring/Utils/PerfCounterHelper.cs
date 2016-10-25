@@ -57,7 +57,7 @@ namespace EventStore.Core.Services.Monitoring.Utils
             string processName = null;
             try
             {
-                processName = Process.GetCurrentProcess().ProcessName;
+                processName = Process.GetCurrentProcess().Id.ToString();
                 return CreatePerfCounter(category, counter, processName);
             }
             catch (Exception ex)
